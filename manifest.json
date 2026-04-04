@@ -1,0 +1,10 @@
+{
+    "id": "mol2d-viewer",
+    "name": "Mol2D Viewer",
+    "version": "1.0.0",
+    "minAppVersion": "0.15.0",
+    "description": "使用 RDKit.js 渲染 SMILES 分子式并计算分子属性",
+    "author": "yzh-362",
+    "isDesktopOnly": false,
+    "main": "main.js"
+}

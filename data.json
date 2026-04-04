@@ -1,0 +1,22 @@
+{
+  "bondColor": "#ffffff",
+  "containerWidth": "fit-content",
+  "reactionContainerWidth": "60%",
+  "imageWidth": "300px",
+  "imageHeight": "auto",
+  "showDetails": true,
+  "detailsPosition": "side",
+  "useLocalResourceOnly": true,
+  "theme": "vivid",
+  "borderColor": "#cccccc",
+  "borderWidth": "1px",
+  "backgroundColor": "#000000",
+  "imageBackgroundColor": "#ffffff",
+  "legendColor": "#000000",
+  "generate3D": false,
+  "reactionImageWidth": "600px",
+  "reactionBondLineWidth": 3,
+  "reactionBackgroundColor": "#ffffff",
+  "width": "40%",
+  "height": "300px"
+}
