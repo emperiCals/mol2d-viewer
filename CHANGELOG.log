@@ -2,3 +2,4 @@
 
 说明：后续每次更改本项目时，需在本文件末尾追加一行，格式：`YYYY-MM-DD | 类型 | 说明`，类型如 feat / fix / docs / refactor / chore。
 2026-07-24 | docs | 新增共享 dev-env 浏览器调试环境说明（AGENTS.md）
+2026-07-24 | docs | 记录新增 dev-env 测试体系（vitest 单测 + 浏览器渲染测试），AGENTS.md 补充 npm test / test:browser 用法
