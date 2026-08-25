@@ -13,23 +13,29 @@
 .rdkit-wrapper {
     display: flex;
     max-width: 100%;
-    border-radius: 8px;
+    border-radius: var(--radius-m, 8px);
     padding: 12px;
     box-sizing: border-box;
     position: relative;
-    /* 通过 JS 设置变量控制颜色和边框 */
-    border: var(--rdkit-border);
-    background-color: var(--rdkit-bg);
+    /* 通过 JS 设置变量控制颜色和边框；未设置时回退到主题变量 */
+    border: var(--rdkit-border, 1px solid var(--background-modifier-border));
+    background-color: var(--rdkit-bg, var(--background-secondary));
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
     align-items: center; /* 新增：确保内容居中 */
     overflow: hidden; /* 确保标题栏圆角生效 */
 }
 
-/* 布局模式 */
+/* 布局模式：side 用 grid，图片列固定、详情列吃剩余空间，不存在 flex-wrap 换行失控 */
 .rdkit-wrapper.is-side-layout {
-    flex-direction: row;
-    flex-wrap: wrap; /* 允许换行，这是让标题独占一行的关键 */
-    align-items: center; /* 修复：改为居中对齐，使图片和详情在垂直方向上居中 */
-    align-content: flex-start;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 16px;
+    align-items: center;
+}
+
+/* side 布局下标题栏横跨两列 */
+.rdkit-wrapper.is-side-layout > .rdkit-card-header {
+    grid-column: 1 / -1;
 }
 
 .rdkit-wrapper:not(.is-side-layout) {
@@ -47,12 +53,12 @@
     width: calc(100% + 24px); /* 抵消 rdkit-wrapper 的 12px padding */
     margin: -12px -12px 12px -12px; /* 拉伸到边缘 */
     padding: 8px 12px;
-    background-color: var(--background-secondary);
+    background-color: var(--background-secondary-alt, rgba(125, 125, 125, 0.06));
     border-bottom: 1px solid var(--background-modifier-border);
     font-weight: bold;
     color: var(--text-normal);
     text-align: left;
-    border-radius: 8px 8px 0 0; /* 匹配外层圆角 */
+    border-radius: var(--radius-m, 8px) var(--radius-m, 8px) 0 0; /* 匹配外层圆角 */
     
     /* 关键属性：强制占据一整行 */
     /* 修复：使用 auto 或 calc 确保宽度包含负 margin 的延伸部分 */
@@ -65,14 +71,24 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    border-radius: 4px;
+    border-radius: var(--radius-s, 4px);
     overflow: visible; 
-    background-color: var(--rdkit-img-bg);
+    background-color: var(--rdkit-img-bg, transparent);
     /* 移除了 transform 和 transition 以取消缩放动画 */
 }
 
+/* 非 side 布局时图片在卡片内横向居中，宽度变化不再留下单侧空白 */
+.rdkit-wrapper:not(.is-side-layout) > .rdkit-img-container {
+    margin-left: auto;
+    margin-right: auto;
+}
+
+
+
 .rdkit-img-container svg {
     width: 100%;
+    max-width: 100%;
+    height: auto; /* 保持纵横比，配合内联自然宽度使用 */
     display: block;
     background: transparent;
 }
@@ -85,12 +101,10 @@
 }
 
 .rdkit-details-wrapper.details-side {
-    margin-left: 16px;
     border-left: 1px solid var(--background-modifier-border);
     padding-left: 16px;
-    width: 250px;
-    min-width: 200px;
-    flex-shrink: 0;
+    width: auto;
+    min-width: 0; /* grid 列内允许收缩 */
     overflow-y: auto;
 }
 
@@ -105,7 +119,7 @@
 .rdkit-details-cat {
     margin-bottom: 4px;
     border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
+    border-radius: var(--radius-s, 4px);
     padding: 4px 8px;
     background-color: var(--background-secondary);
 }
@@ -118,22 +132,26 @@
 
 .rdkit-prop-list {
     margin-top: 4px;
-    word-break: break-all;
+    overflow-wrap: break-word; /* 长属性名按词换行，不再从词中间硬断 */
 }
 
 .rdkit-prop-item {
     display: flex;
     justify-content: space-between;
+    gap: 8px;
     border-bottom: 1px dashed var(--background-modifier-border);
     padding: 2px 0;
 }
 
 .rdkit-prop-item strong {
     color: var(--text-normal);
+    min-width: 0; /* 允许长名称换行收缩 */
 }
 
 .rdkit-prop-item span {
     color: var(--text-muted);
+    text-align: right;
+    flex-shrink: 0; /* 数值列不被挤压 */
 }
 
 /* 加载与错误提示 */
@@ -167,7 +185,7 @@
     color: var(--text-normal);
     padding: 5px;
     background-color: var(--background-secondary-alt);
-    border-radius: 4px;
+    border-radius: var(--radius-s, 4px);
 }
 
 /* 反应式属性分栏容器 */
@@ -195,7 +213,7 @@
 .rdkit-settings-help {
     overflow-x: auto;
     border: 1px solid var(--background-modifier-border);
-    border-radius: 6px;
+    border-radius: var(--radius-m, 6px);
     background-color: var(--background-primary);
 }
 

@@ -3,3 +3,22 @@
 说明：后续每次更改本项目时，需在本文件末尾追加一行，格式：`YYYY-MM-DD | 类型 | 说明`，类型如 feat / fix / docs / refactor / chore。
 2026-07-24 | docs | 新增共享 dev-env 浏览器调试环境说明（AGENTS.md）
 2026-07-24 | docs | 记录新增 dev-env 测试体系（vitest 单测 + 浏览器渲染测试），AGENTS.md 补充 npm test / test:browser 用法
+2026-08-25 | style | 卡片化样式：圆角/阴影改主题变量兜底，卡片背景 transparent 时回退 --background-secondary，标题栏用 --background-secondary-alt
+2026-08-25 | style | 卡片宽度自适应：非 side 布局图片横向居中，side 布局详情面板 flex 拉伸填满剩余空间，长属性名按词换行、数值列不挤压
+2026-08-25 | 修复 | side 布局按实际宽度降级为 bottom（宽度不足 图片宽+260px 时详情转底部），图片在详情换行后水平居中，消除右侧空白
+2026-08-25 | 修复 | side 布局改为 grid 双列杜绝 flex-wrap 失控换行；宽度不足时直接降级 bottom；新增 ResizeObserver 防抖重渲染，拖动面板宽度时布局实时自适应
+2026-08-25 | 功能 | 反应式排版参考 alchemist/chemfig：箭头支持 [上][下] 条件标注且箭头随文字伸长；同一反应式内分子统一高度（缩放封顶 1.6）基线对齐；新增 parseOperatorLine 解析
+2026-08-25 | 功能 | 箭头标注支持化学式下标/^上标、Markdown 粗斜体/code、$...$ LaTeX（MathJax SVG 输出，链路全矢量）；mergeSequence 改为异步
+2026-08-25 | 修复+功能 | 反应式分子改用 fixedBondLength 统一键长、取消整体缩放（chemfig 观感）；反应 SVG 按自然宽度显示不再拉伸稀释标注；MathJax 改用 loadMathJax 懒加载；箭头标注新增 mol:SMILES 结构式排版；图例钳制在画布内
+2026-08-25 | 修复 | 箭头标注解析支持嵌套方括号（[Cr]/[Na+] 不再截断标注导致箭头消失）；全局 legend 不再被每个分子重复绘制；反应式混入非法 SMILES 时尺寸兜底
+2026-08-25 | 修复 | LaTeX 标注双通道：tex2svg 不可用时走 renderMath(CHTML) 经 foreignObject 嵌入，解决 Obsidian MathJax 只有 CHTML 输出导致的公式原文显示；反应式白框改为贴合内容居中
+2026-08-25 | 修复 | 反应式显示尺寸按内容高度放大到 ~150px 观感；LaTeX 渲染链路加诊断日志
+2026-08-25 | 修复+优化 | reaction：$...$ 标注改走内置 mini-TeX 子集渲染（希腊字母/上下标/\mathrm，不依赖 MathJax 运行时）；mergeSequence 全局放大 S=1.6，卡片过窄时横向滚动替代压缩
+2026-08-25 | 优化 | reaction：分子键长 30→45（分子本体放大）；箭头上下标注基线外移，上下标不再压线/越界
+2026-08-25 | 优化 | reaction：条件/标注字号不再定死，随分子最大高度动态推导（0.28 倍，钳制 16~30）
+2026-08-25 | 优化 | reaction：条件/标注字号不再定死，随分子最大高度动态推导（0.28 倍，钳制 16~30）
+2026-08-25 | 修复 | reaction：分子 svg viewBox 收紧到内容真实边界（getBBox，消除 RDKit 面板大片空白）；svg 加 flex-shrink:0 防止被 flex 容器压缩（4223→421 的直接原因）
+2026-08-25 | 修复 | reaction：剥离 width=/height= 固定面板参数（尺寸归 fixedBondLength 管）；getBBox 测量克隆先移除背景 rect 防收紧失效
+2026-08-25 | 修复 | reaction：显示层改为填满卡片宽度等比缩放（比例由 viewBox 内部固定），放弃横向滚动方案
+2026-08-25 | 修复 | reaction：legend 宽度按字符类型精确估算（CJK/大写数字/小写）+6px 安全边距，边缘图例不再溢出；移除临时诊断日志
+2026-08-25 | 优化 | reaction：图例字号动态收敛（0.2 倍分子高，13~26）；相邻图例防重叠分离（多轮迭代+画布钳制+6px 边距）

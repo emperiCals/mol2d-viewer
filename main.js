@@ -190,6 +190,29 @@ var RDKitRenderChild = class extends import_obsidian2.MarkdownRenderChild {
   async onload() {
     await this.render();
     this.registerEvent(this.plugin.app.workspace.on("rdkit:refresh-renders", () => this.render()));
+    if (typeof ResizeObserver !== "undefined") {
+      let resizeTimer = null;
+      let lastWidth = this.containerEl.clientWidth;
+      const resizeObserver = new ResizeObserver(() => {
+        const w = this.containerEl.clientWidth;
+        if (Math.abs(w - lastWidth) < 8)
+          return;
+        lastWidth = w;
+        if (resizeTimer !== null)
+          window.clearTimeout(resizeTimer);
+        resizeTimer = window.setTimeout(() => {
+          resizeTimer = null;
+          if (this.containerEl.isConnected)
+            this.render();
+        }, 150);
+      });
+      resizeObserver.observe(this.containerEl);
+      this.register(() => {
+        resizeObserver.disconnect();
+        if (resizeTimer !== null)
+          window.clearTimeout(resizeTimer);
+      });
+    }
   }
   // 智能分割 Config 与 SMILES
   findConfigSeparator(line) {
@@ -473,74 +496,388 @@ var RDKitRenderChild = class extends import_obsidian2.MarkdownRenderChild {
       mol.delete();
     }
   }
+  // 解析操作符行：+ 、 -> 、 >> ，箭头支持 [上方标注][下方标注]（参考 chemfig/alchemist 的箭头条件写法）
+  // 标注内允许嵌套方括号（如 SMILES 里的 [Cr]、[Na+]）：->[mol:O=[Cr](=O)(=O)O][加热]
+  parseOperatorLine(line) {
+    const m = line.match(/^(\+|->|>>)(.*)$/);
+    if (!m)
+      return null;
+    const rest = m[2];
+    const labels = [];
+    let i = 0;
+    while (i < rest.length) {
+      if (/\s/.test(rest[i])) {
+        i++;
+        continue;
+      }
+      if (rest[i] !== "[")
+        return null;
+      let depth = 0, j = i;
+      for (; j < rest.length; j++) {
+        if (rest[j] === "[")
+          depth++;
+        else if (rest[j] === "]" && --depth === 0) {
+          j++;
+          break;
+        }
+      }
+      if (depth !== 0)
+        return null;
+      labels.push(rest.slice(i + 1, j - 1).trim());
+      if (labels.length > 2)
+        return null;
+      i = j;
+    }
+    const char = m[1] === "->" ? ">>" : m[1];
+    if (char === "+")
+      return labels.length === 0 ? { char } : null;
+    return { char, above: labels[0] || void 0, below: labels[1] || void 0 };
+  }
+  // 标注文本轻量排版：分子式下标（H2SO4 → H₂SO₄）、^ 上标（如 SO4^2- 电荷）、
+  // **粗体**、*斜体*、`代码`；整段被 $...$ 包裹时走 LaTeX（MathJax SVG 输出，保持矢量）
+  parseLabelRuns(text) {
+    const runs = [];
+    const pushChem = (chunk, style) => {
+      const chemRegex = /\^([-+0-9A-Za-z.]+)|([A-Za-z)\]])(\d+(?:\.\d+)?)/g;
+      let l = 0;
+      let m2;
+      while ((m2 = chemRegex.exec(chunk)) !== null) {
+        if (m2.index > l)
+          runs.push({ ...style, text: chunk.slice(l, m2.index) });
+        if (m2[1] !== void 0) {
+          runs.push({ ...style, text: m2[1], shift: "sup" });
+        } else {
+          runs.push({ ...style, text: m2[2] });
+          runs.push({ ...style, text: m2[3], shift: "sub" });
+        }
+        l = m2.index + m2[0].length;
+      }
+      if (l < chunk.length)
+        runs.push({ ...style, text: chunk.slice(l) });
+    };
+    const mdRegex = /\*\*([^*]+)\*\*|\*([^*]+)\*|`([^`]+)`/g;
+    let last = 0;
+    let m;
+    while ((m = mdRegex.exec(text)) !== null) {
+      if (m.index > last)
+        pushChem(text.slice(last, m.index), {});
+      if (m[1] !== void 0)
+        pushChem(m[1], { bold: true });
+      else if (m[2] !== void 0)
+        pushChem(m[2], { italic: true });
+      else
+        pushChem(m[3], { code: true });
+      last = m.index + m[0].length;
+    }
+    if (last < text.length)
+      pushChem(text.slice(last), {});
+    return runs;
+  }
+  // 内置 mini-TeX 子集排版：$...$ 标注不依赖 MathJax 也能正确渲染。
+  // 支持希腊字母（\Delta→Δ）、\mathrm/\text/\mathbf/\mathit 分组、^/_ 上下标（含 {} 分组）、
+  // 常用符号（\circ→°、\times、\to 等）与间距命令（\, \; \:）。反应条件标注（温度、催化剂、Δ）全覆盖。
+  parseTexRuns(tex) {
+    const GREEK = { alpha: "\u03B1", beta: "\u03B2", gamma: "\u03B3", delta: "\u03B4", epsilon: "\u03B5", zeta: "\u03B6", eta: "\u03B7", theta: "\u03B8", iota: "\u03B9", kappa: "\u03BA", lambda: "\u03BB", mu: "\u03BC", nu: "\u03BD", xi: "\u03BE", pi: "\u03C0", rho: "\u03C1", sigma: "\u03C3", tau: "\u03C4", phi: "\u03C6", chi: "\u03C7", psi: "\u03C8", omega: "\u03C9", Gamma: "\u0393", Delta: "\u0394", Theta: "\u0398", Lambda: "\u039B", Xi: "\u039E", Pi: "\u03A0", Sigma: "\u03A3", Phi: "\u03A6", Psi: "\u03A8", Omega: "\u03A9" };
+    const SYMBOLS = { circ: "\xB0", times: "\xD7", cdot: "\xB7", pm: "\xB1", to: "\u2192", rightarrow: "\u2192", leftarrow: "\u2190", leq: "\u2264", le: "\u2264", geq: "\u2265", ge: "\u2265", neq: "\u2260", approx: "\u2248", infty: "\u221E", ",": " ", ";": " ", ":": " ", "!": "", " ": " " };
+    const runs = [];
+    let i = 0;
+    const n = tex.length;
+    let style = {};
+    const push = (text, extra = {}) => {
+      if (text)
+        runs.push({ ...style, ...extra, text });
+    };
+    const readAtom = () => {
+      if (i >= n)
+        return;
+      const c = tex[i];
+      if (c === "{") {
+        i++;
+        parseUntil("}");
+        return;
+      }
+      if (c === "\\") {
+        readCommand();
+        return;
+      }
+      push(c);
+      i++;
+    };
+    const readCommand = () => {
+      i++;
+      let name = "";
+      while (i < n && /[A-Za-z]/.test(tex[i]))
+        name += tex[i++];
+      if (!name && i < n) {
+        const ch = tex[i++];
+        push(ch in SYMBOLS ? SYMBOLS[ch] : ch);
+        return;
+      }
+      if (name in GREEK) {
+        push(GREEK[name]);
+        return;
+      }
+      if (name in SYMBOLS) {
+        push(SYMBOLS[name]);
+        return;
+      }
+      if (["mathrm", "text", "mathbf", "mathit", "bf", "it", "rm"].includes(name)) {
+        const prev = style;
+        if (name === "mathbf" || name === "bf")
+          style = { ...style, bold: true };
+        else if (name === "mathit" || name === "it")
+          style = { ...style, italic: true };
+        if (i < n && tex[i] === "{") {
+          i++;
+          parseUntil("}");
+        } else
+          readAtom();
+        style = prev;
+        return;
+      }
+    };
+    const parseUntil = (end) => {
+      while (i < n) {
+        const c = tex[i];
+        if (end && c === end) {
+          i++;
+          return;
+        }
+        if (c === "^" || c === "_") {
+          const shift = c === "^" ? "sup" : "sub";
+          i++;
+          const before = runs.length;
+          readAtom();
+          for (let k = before; k < runs.length; k++)
+            runs[k] = { ...runs[k], shift };
+          continue;
+        }
+        if (c === "\\") {
+          readCommand();
+          continue;
+        }
+        if (c === "{") {
+          i++;
+          parseUntil("}");
+          continue;
+        }
+        if (c === "}") {
+          i++;
+          return;
+        }
+        if (/\s/.test(c)) {
+          push(" ");
+          i++;
+          continue;
+        }
+        push(c);
+        i++;
+      }
+    };
+    parseUntil();
+    const merged = [];
+    for (const r of runs) {
+      const lastR = merged[merged.length - 1];
+      if (lastR && lastR.bold === r.bold && lastR.italic === r.italic && lastR.shift === r.shift)
+        lastR.text += r.text;
+      else
+        merged.push(r);
+    }
+    return merged;
+  }
   // 合并 SVG 序列 [ {svg:...}, {type:'operator', char:'+'} ...]
-  mergeSequence(items, defaultLegendColor) {
+  async mergeSequence(items, defaultLegendColor) {
+    var _a;
     const parser = new DOMParser();
     const serializer = new XMLSerializer();
-    const parsedItems = items.map((item) => {
-      if (item.type === "svg" && item.svg) {
-        const doc = parser.parseFromString(item.svg, "image/svg+xml");
-        const vb = doc.documentElement.getAttribute("viewBox");
-        let w = 0, h = 0;
-        if (vb) {
-          const v = vb.split(/[\s,]+/).map(parseFloat);
-          w = v[2];
-          h = v[3];
+    const S = 1.6;
+    const trimSvgDoc = (doc) => {
+      try {
+        const host = document.createElement("div");
+        host.style.cssText = "position:absolute;visibility:hidden;left:-99999px;top:-99999px;";
+        document.body.appendChild(host);
+        const liveSvg = host.appendChild(doc.documentElement.cloneNode(true));
+        liveSvg.querySelectorAll("rect").forEach((r) => r.remove());
+        if (typeof liveSvg.getBBox === "function") {
+          const bb = liveSvg.getBBox();
+          const m = 4;
+          if (bb.width > 0 && bb.height > 0) {
+            doc.documentElement.setAttribute("viewBox", `${bb.x - m} ${bb.y - m} ${bb.width + 2 * m} ${bb.height + 2 * m}`);
+            host.remove();
+            return { w: bb.width + 2 * m, h: bb.height + 2 * m };
+          }
         }
-        return { ...item, doc, w, h };
+        host.remove();
+      } catch (e) {
+      }
+      const vb = doc.documentElement.getAttribute("viewBox");
+      if (vb) {
+        const v = vb.split(/[\s,]+/).map(parseFloat);
+        return { w: v[2], h: v[3] };
+      }
+      return { w: 0, h: 0 };
+    };
+    const parsedItems = items.map((item) => {
+      if (item.type === "svg") {
+        if (!item.svg)
+          return { ...item, doc: null, w: 0, h: 0 };
+        const doc = parser.parseFromString(item.svg, "image/svg+xml");
+        const { w, h } = trimSvgDoc(doc);
+        return { ...item, doc, w: w * S, h: h * S };
       }
       return item;
     });
-    const plusWidth = 30;
-    const arrowWidth = 60;
-    const gap = 10;
-    const legendFontSize = 20;
-    const legendPadding = 10;
-    let totalWidth = 0;
-    let maxMolHeight = 40;
+    const plusWidth = 30 * S;
+    const arrowWidth = 60 * S;
+    const gap = 10 * S;
+    const legendPadding = 10 * S;
+    let maxMolHeight = 40 * S;
+    parsedItems.forEach((item) => {
+      if (item.type === "svg" && item.h > maxMolHeight)
+        maxMolHeight = item.h;
+    });
+    const arrowLabelFontSize = Math.round(Math.min(30, Math.max(16, maxMolHeight * 0.28)));
+    const arrowLabelPad = Math.round(arrowLabelFontSize * 1.5);
+    const legendFontSize = Math.round(Math.min(26, Math.max(13, maxMolHeight * 0.2)));
+    const estTextWidth = (s, fs) => {
+      let w = 0;
+      for (const ch of s)
+        w += (ch.codePointAt(0) || 0) > 11903 ? fs : /[A-Z0-9]/.test(ch) ? fs * 0.68 : fs * 0.55;
+      return w;
+    };
+    const estRunsWidth = (runs) => {
+      let w = 0;
+      for (const run of runs) {
+        const fs = run.shift ? arrowLabelFontSize * 0.7 : arrowLabelFontSize;
+        for (const ch of run.text)
+          w += (ch.codePointAt(0) || 0) > 11903 ? fs : fs * 0.55;
+      }
+      return w;
+    };
+    const pxPerEx = arrowLabelFontSize * 0.5;
+    const rxnDrawOpts = { ...this.getThemeOptions(), fixedBondLength: 30 };
+    for (const item of parsedItems) {
+      if (item.type !== "operator")
+        continue;
+      for (const key of ["above", "below"]) {
+        const label = item[key];
+        if (!label)
+          continue;
+        const trimmed = label.trim();
+        const molMatch = trimmed.match(/^mol:(.+)$/);
+        if (molMatch) {
+          const data = this.getMolData(molMatch[1].trim(), rxnDrawOpts, {});
+          if (data && data.svg) {
+            const doc = parser.parseFromString(data.svg, "image/svg+xml");
+            const { w, h } = trimSvgDoc(doc);
+            if (w > 0 && h > 0) {
+              item[key + "Mol"] = { doc, w: w * S, h: h * S };
+              continue;
+            }
+          }
+          item[key] = molMatch[1].trim();
+          continue;
+        }
+        const m = trimmed.match(/^\$([\s\S]+)\$$/);
+        if (!m)
+          continue;
+        const tex = m[1];
+        let done = false;
+        const mjNow = window.MathJax;
+        if (mjNow && typeof mjNow.tex2svgPromise === "function") {
+          try {
+            const container = await mjNow.tex2svgPromise(tex, { display: false });
+            const svgNode = container.querySelector ? container.querySelector("svg") : ((_a = container.firstElementChild) == null ? void 0 : _a.tagName) === "svg" ? container.firstElementChild : null;
+            if (svgNode) {
+              const exW = parseFloat(svgNode.getAttribute("width") || "0");
+              const exH = parseFloat(svgNode.getAttribute("height") || "1");
+              item[key + "Latex"] = { node: svgNode, w: exW * pxPerEx, h: exH * pxPerEx };
+              done = true;
+            }
+          } catch (e) {
+            console.warn("[mol2d] tex2svg \u5931\u8D25\uFF0C\u8F6C mini-TeX:", tex, e);
+          }
+        }
+        if (!done) {
+          const runs = this.parseTexRuns(tex);
+          if (runs.length > 0) {
+            item[key + "Runs"] = runs;
+            done = true;
+          }
+        }
+        if (!done)
+          item[key] = tex;
+      }
+    }
+    const labelWidthOf = (item, key) => {
+      const mol = item[key + "Mol"];
+      if (mol)
+        return mol.w;
+      const lat = item[key + "Latex"];
+      if (lat)
+        return lat.w;
+      const runs = item[key + "Runs"];
+      if (runs)
+        return estRunsWidth(runs);
+      return item[key] ? estRunsWidth(this.parseLabelRuns(item[key])) : 0;
+    };
     let hasLegend = false;
-    parsedItems.forEach((item, idx) => {
-      if (idx > 0)
-        totalWidth += gap;
+    parsedItems.forEach((item) => {
       if (item.type === "svg") {
-        totalWidth += item.w;
-        if (item.h > maxMolHeight)
-          maxMolHeight = item.h;
+        item.effW = item.w;
+        item.effH = item.h;
         if (item.legend)
           hasLegend = true;
       } else if (item.type === "operator") {
-        totalWidth += item.char === ">>" || item.char === "->" ? arrowWidth : plusWidth;
+        if (item.char === ">>" || item.char === "->") {
+          const labelW = Math.max(labelWidthOf(item, "above"), labelWidthOf(item, "below"));
+          item.width = Math.max(arrowWidth, labelW + 16);
+        } else {
+          item.width = plusWidth;
+        }
       }
     });
-    const totalHeight = maxMolHeight + (hasLegend ? legendFontSize + legendPadding : 0);
+    const labelSpaceOf = (key) => Math.max(0, ...parsedItems.filter((i) => i.type === "operator").map((i) => {
+      if (i[key + "Mol"])
+        return i[key + "Mol"].h + 8;
+      if (i[key + "Latex"])
+        return i[key + "Latex"].h + 8;
+      return i[key + "Runs"] || i[key] ? arrowLabelPad : 0;
+    }));
+    const topPad = labelSpaceOf("above");
+    const bottomPad = labelSpaceOf("below");
+    const legendArea = hasLegend ? legendFontSize + legendPadding : 0;
+    const totalHeight = topPad + maxMolHeight + bottomPad + legendArea;
+    let totalWidth = 0;
+    parsedItems.forEach((item, idx) => {
+      if (idx > 0)
+        totalWidth += gap;
+      totalWidth += item.type === "svg" ? item.effW : item.width;
+    });
     const masterDoc = document.implementation.createDocument("http://www.w3.org/2000/svg", "svg", null);
     const svgRoot = masterDoc.documentElement;
     svgRoot.setAttribute("viewBox", `0 0 ${totalWidth} ${totalHeight}`);
     svgRoot.setAttribute("xmlns", "http://www.w3.org/2000/svg");
     let currentX = 0;
-    const midY = maxMolHeight / 2;
+    const midY = topPad + maxMolHeight / 2;
+    const pendingLegends = [];
     parsedItems.forEach((item) => {
       if (item.type === "svg" && item.doc) {
         const g = masterDoc.createElementNS("http://www.w3.org/2000/svg", "g");
-        const yOff = (maxMolHeight - item.h) / 2;
-        g.setAttribute("transform", `translate(${currentX}, ${yOff})`);
+        const yOff = topPad + (maxMolHeight - item.effH) / 2;
+        g.setAttribute("transform", `translate(${currentX}, ${yOff}) scale(${S})`);
         Array.from(item.doc.documentElement.childNodes).forEach((n) => g.appendChild(masterDoc.importNode(n, true)));
         svgRoot.appendChild(g);
         if (item.legend) {
-          const text = masterDoc.createElementNS("http://www.w3.org/2000/svg", "text");
-          text.textContent = item.legend;
-          text.setAttribute("x", String(currentX + item.w / 2));
-          text.setAttribute("y", String(maxMolHeight + legendPadding + legendFontSize / 2));
-          text.setAttribute("text-anchor", "middle");
-          text.setAttribute("dominant-baseline", "middle");
-          text.setAttribute("font-size", `${legendFontSize}px`);
-          text.setAttribute("font-family", "sans-serif");
-          text.setAttribute("fill", item.legendColor || defaultLegendColor);
-          svgRoot.appendChild(text);
+          pendingLegends.push({
+            text: String(item.legend),
+            cx: currentX + item.effW / 2,
+            color: item.legendColor || defaultLegendColor
+          });
         }
-        currentX += item.w;
+        currentX += item.effW;
       } else if (item.type === "operator") {
-        const width = item.char === ">>" || item.char === "->" ? arrowWidth : plusWidth;
+        const width = item.width;
         const gOp = masterDoc.createElementNS("http://www.w3.org/2000/svg", "g");
         const path = masterDoc.createElementNS("http://www.w3.org/2000/svg", "path");
         path.setAttribute("stroke", item.legendColor || defaultLegendColor);
@@ -557,11 +894,105 @@ var RDKitRenderChild = class extends import_obsidian2.MarkdownRenderChild {
           path.setAttribute("d", `M ${startX} ${midY} L ${endX} ${midY} M ${endX - arrHead} ${midY - arrHead} L ${endX} ${midY} L ${endX - arrHead} ${midY + arrHead}`);
         }
         gOp.appendChild(path);
+        const labelColor = item.legendColor || defaultLegendColor;
+        const drawMolLabel = (mol, y) => {
+          const g = masterDoc.createElementNS("http://www.w3.org/2000/svg", "g");
+          g.setAttribute("transform", `translate(${currentX + width / 2 - mol.w / 2}, ${y}) scale(${S})`);
+          Array.from(mol.doc.documentElement.childNodes).forEach((n) => g.appendChild(masterDoc.importNode(n, true)));
+          gOp.appendChild(g);
+        };
+        const drawLatexLabel = (lat, y) => {
+          const node = masterDoc.importNode(lat.node, true);
+          node.setAttribute("x", String(currentX + width / 2 - lat.w / 2));
+          node.setAttribute("y", String(y));
+          node.setAttribute("width", String(lat.w));
+          node.setAttribute("height", String(lat.h));
+          node.setAttribute("style", `color: ${labelColor}`);
+          gOp.appendChild(node);
+        };
+        const drawRunsLabel = (runs, y) => {
+          const text = masterDoc.createElementNS("http://www.w3.org/2000/svg", "text");
+          text.setAttribute("x", String(currentX + width / 2));
+          text.setAttribute("y", String(y));
+          text.setAttribute("text-anchor", "middle");
+          text.setAttribute("font-size", `${arrowLabelFontSize}px`);
+          text.setAttribute("font-family", "sans-serif");
+          text.setAttribute("fill", labelColor);
+          for (const run of runs) {
+            const tspan = masterDoc.createElementNS("http://www.w3.org/2000/svg", "tspan");
+            tspan.textContent = run.text;
+            if (run.bold)
+              tspan.setAttribute("font-weight", "bold");
+            if (run.italic)
+              tspan.setAttribute("font-style", "italic");
+            if (run.code)
+              tspan.setAttribute("font-family", "monospace");
+            if (run.shift) {
+              tspan.setAttribute("baseline-shift", run.shift);
+              tspan.setAttribute("font-size", `${Math.round(arrowLabelFontSize * 0.7)}px`);
+            }
+            text.appendChild(tspan);
+          }
+          gOp.appendChild(text);
+        };
+        const aboveTextY = midY - Math.round(arrowLabelFontSize * 0.7);
+        const belowTextY = midY + arrowLabelFontSize + 14;
+        if (item.aboveMol)
+          drawMolLabel(item.aboveMol, midY - 8 - item.aboveMol.h);
+        else if (item.aboveLatex)
+          drawLatexLabel(item.aboveLatex, midY - 8 - item.aboveLatex.h);
+        else if (item.aboveRuns)
+          drawRunsLabel(item.aboveRuns, aboveTextY);
+        else if (item.above)
+          drawRunsLabel(this.parseLabelRuns(item.above), aboveTextY);
+        if (item.belowMol)
+          drawMolLabel(item.belowMol, midY + 6);
+        else if (item.belowLatex)
+          drawLatexLabel(item.belowLatex, midY + 6);
+        else if (item.belowRuns)
+          drawRunsLabel(item.belowRuns, belowTextY);
+        else if (item.below)
+          drawRunsLabel(this.parseLabelRuns(item.below), belowTextY);
         svgRoot.appendChild(gOp);
         currentX += width;
       }
       currentX += gap;
     });
+    if (pendingLegends.length > 0) {
+      const minGap = 8;
+      const legendY = topPad + maxMolHeight + legendPadding + legendFontSize / 2;
+      const entries = pendingLegends.map((l) => {
+        const w = estTextWidth(l.text, legendFontSize);
+        const half = w / 2 + 6;
+        const cx = Math.min(Math.max(l.cx, half), Math.max(half, totalWidth - half));
+        return { ...l, half, cx };
+      }).sort((a, b) => a.cx - b.cx);
+      for (let pass = 0; pass < 4; pass++) {
+        for (let i = 1; i < entries.length; i++) {
+          const prev = entries[i - 1], cur = entries[i];
+          const minDist = prev.half + cur.half + minGap;
+          if (cur.cx - prev.cx < minDist) {
+            const mid = (prev.cx + cur.cx) / 2;
+            prev.cx = mid - minDist / 2;
+            cur.cx = mid + minDist / 2;
+          }
+        }
+        for (const e of entries)
+          e.cx = Math.min(Math.max(e.cx, e.half), Math.max(e.half, totalWidth - e.half));
+      }
+      for (const e of entries) {
+        const text = masterDoc.createElementNS("http://www.w3.org/2000/svg", "text");
+        text.textContent = e.text;
+        text.setAttribute("x", String(e.cx));
+        text.setAttribute("y", String(legendY));
+        text.setAttribute("text-anchor", "middle");
+        text.setAttribute("dominant-baseline", "middle");
+        text.setAttribute("font-size", `${legendFontSize}px`);
+        text.setAttribute("font-family", "sans-serif");
+        text.setAttribute("fill", e.color);
+        svgRoot.appendChild(text);
+      }
+    }
     return serializer.serializeToString(masterDoc);
   }
   async render() {
@@ -571,7 +1002,7 @@ var RDKitRenderChild = class extends import_obsidian2.MarkdownRenderChild {
     if (this.mode === "reaction") {
       await this.renderReactionBlockMode(lines);
     } else {
-      const isMultiLineRxn = lines.some((l) => l.trim() === "+" || l.trim() === ">>");
+      const isMultiLineRxn = lines.some((l) => this.parseOperatorLine(l.trim()) !== null);
       if (isMultiLineRxn) {
         await this.renderMultiLineMode(lines);
       } else {
@@ -598,12 +1029,9 @@ var RDKitRenderChild = class extends import_obsidian2.MarkdownRenderChild {
     }
     for (let i = startIndex; i < lines.length; i++) {
       const line = lines[i].trim();
-      if (line === "->") {
-        sequence.push({ type: "operator", char: ">>" });
-      } else if (line === "+") {
-        sequence.push({ type: "operator", char: "+" });
-      } else if (line === ">>") {
-        sequence.push({ type: "operator", char: ">>" });
+      const op = this.parseOperatorLine(line);
+      if (op) {
+        sequence.push({ type: "operator", char: op.char, above: op.above, below: op.below });
       } else {
         const sepIdx = this.findConfigSeparator(line);
         let smiles, localOptsStr;
@@ -636,8 +1064,9 @@ var RDKitRenderChild = class extends import_obsidian2.MarkdownRenderChild {
     }
     for (let i = startIndex; i < lines.length; i++) {
       const line = lines[i].trim();
-      if (line === "+" || line === ">>") {
-        sequence.push({ type: "operator", char: line });
+      const op = this.parseOperatorLine(line);
+      if (op) {
+        sequence.push({ type: "operator", char: op.char, above: op.above, below: op.below });
       } else {
         const sepIdx = this.findConfigSeparator(line);
         let smiles, localOptsStr;
@@ -700,12 +1129,14 @@ var RDKitRenderChild = class extends import_obsidian2.MarkdownRenderChild {
       wrapper.createEl("div", { text: "Loading RDKit...", cls: "rdkit-loading" });
       return;
     }
-    const themeOpts = this.getThemeOptions();
+    const themeOpts = { ...this.getThemeOptions(), fixedBondLength: 45 };
     const parentWidth = this.containerEl.clientWidth > 0 ? this.containerEl.clientWidth : ((_a = this.containerEl.parentElement) == null ? void 0 : _a.clientWidth) || 800;
     const isMobile = parentWidth < 500;
     wrapper.classList.toggle("is-mobile", isMobile);
     wrapper.style.setProperty("--rdkit-border", `${this.plugin.settings.borderWidth} solid ${this.plugin.settings.borderColor}`);
-    wrapper.style.setProperty("--rdkit-bg", this.plugin.settings.backgroundColor);
+    const cardBg = this.plugin.settings.backgroundColor;
+    if (cardBg && cardBg !== "transparent")
+      wrapper.style.setProperty("--rdkit-bg", cardBg);
     if (!isMobile) {
       wrapper.style.width = this.plugin.settings.reactionContainerWidth;
     } else {
@@ -718,8 +1149,7 @@ var RDKitRenderChild = class extends import_obsidian2.MarkdownRenderChild {
     }
     const svgContainer = wrapper.createDiv({ cls: "rdkit-img-container" });
     svgContainer.style.setProperty("--rdkit-img-bg", this.plugin.settings.imageBackgroundColor);
-    if (!isMobile)
-      svgContainer.style.width = "100%";
+    svgContainer.style.width = "100%";
     const renderItems = [];
     const reactantsData = [];
     const productsData = [];
@@ -731,6 +1161,10 @@ var RDKitRenderChild = class extends import_obsidian2.MarkdownRenderChild {
         renderItems.push(item);
       } else {
         const mergedOpts = { ...globalOpts, ...item.opts };
+        if (item.opts.legend === void 0)
+          delete mergedOpts.legend;
+        delete mergedOpts.width;
+        delete mergedOpts.height;
         const data = this.getMolData(item.smiles, themeOpts, mergedOpts);
         renderItems.push({
           type: "svg",
@@ -748,8 +1182,14 @@ var RDKitRenderChild = class extends import_obsidian2.MarkdownRenderChild {
         }
       }
     }
-    const mergedSvg = this.mergeSequence(renderItems, this.plugin.settings.legendColor);
+    const mergedSvg = await this.mergeSequence(renderItems, this.plugin.settings.legendColor);
     svgContainer.innerHTML = mergedSvg;
+    const schemeSvg = svgContainer.querySelector("svg");
+    if (schemeSvg) {
+      schemeSvg.style.width = "100%";
+      schemeSvg.style.height = "auto";
+      schemeSvg.style.display = "block";
+    }
     if (globalOpts.legend) {
       const legendEl = wrapper.createDiv({ cls: "rdkit-legend-box" });
       legendEl.innerText = globalOpts.legend;
@@ -774,10 +1214,14 @@ var RDKitRenderChild = class extends import_obsidian2.MarkdownRenderChild {
     const isSide = effectivePosition === "side";
     const parentWidth = this.containerEl.clientWidth > 0 ? this.containerEl.clientWidth : ((_a = this.containerEl.parentElement) == null ? void 0 : _a.clientWidth) || 800;
     const isMobile = parentWidth < 500;
-    wrapper.classList.toggle("is-side-layout", isSide);
+    const imgPx = parseInt(this.plugin.settings.imageWidth, 10) || 300;
+    const sideFits = isSide && !isMobile && parentWidth >= imgPx + 260;
+    wrapper.classList.toggle("is-side-layout", sideFits);
     wrapper.classList.toggle("is-mobile", isMobile);
     wrapper.style.setProperty("--rdkit-border", `${this.plugin.settings.borderWidth} solid ${this.plugin.settings.borderColor}`);
-    wrapper.style.setProperty("--rdkit-bg", this.plugin.settings.backgroundColor);
+    const cardBg = this.plugin.settings.backgroundColor;
+    if (cardBg && cardBg !== "transparent")
+      wrapper.style.setProperty("--rdkit-bg", cardBg);
     if (!isMobile)
       wrapper.style.width = this.plugin.settings.containerWidth;
     const headerText = drawOpts.title || drawOpts.header;
@@ -820,8 +1264,8 @@ var RDKitRenderChild = class extends import_obsidian2.MarkdownRenderChild {
           const desc = descStr ? JSON.parse(descStr) : null;
           if (desc) {
             const detailsWrapper = wrapper.createDiv({ cls: "rdkit-details-wrapper" });
-            detailsWrapper.classList.toggle("details-side", isSide && !isMobile);
-            if (isSide && !isMobile)
+            detailsWrapper.classList.toggle("details-side", sideFits);
+            if (sideFits)
               detailsWrapper.style.maxHeight = this.plugin.settings.imageHeight === "auto" ? "300px" : this.plugin.settings.imageHeight;
             this.renderDescriptorsFromObj(detailsWrapper, desc, "Molecule Properties");
           }

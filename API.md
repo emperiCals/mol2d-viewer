@@ -137,7 +137,7 @@ CC(=O)Oc1ccccc1C(=O)O, legend="Aspirin", width=300
 
 多行列表：每行一个分子，各自成卡片。
 
-多行反应式（独立的 `+`、`>>` 行；首行可为全局配置）：
+多行反应式（独立的 `+`、`>>` 行；首行可为全局配置；箭头行可用 `>>[上方标注][下方标注]` 书写反应条件）：
 
 ````markdown
 ```smiles
@@ -145,7 +145,7 @@ width=400, title="Esterification"
 CC(=O)O
 +
 CCO
->>
+>>[H2SO4][加热]
 CC(=O)OCC, legend="Ethyl acetate"
 ```
 ````
@@ -154,7 +154,7 @@ CC(=O)OCC, legend="Ethyl acetate"
 
 ### `reaction` 代码块
 
-首行可用 `@keyword=` 或 `@keywords=` 声明全局配置，`->` 表示箭头：
+首行可用 `@keyword=` 或 `@keywords=` 声明全局配置，`->` 表示箭头（同样支持 `[上][下]` 标注）：
 
 ````markdown
 ```reaction
@@ -162,10 +162,21 @@ CC(=O)OCC, legend="Ethyl acetate"
 CC(=O)O
 +
 CCO, legend="EtOH"
-->
+->[浓硫酸][回流]
 CC(=O)OCC
 ```
 ````
+
+排版规则（参考 chemfig/alchemist 的反应式观感）：
+
+- 同一反应式内所有分子垂直居中对齐；`+` 与箭头对齐到分子中线。
+- 箭头标注写法：`->[上方条件]` 或 `->[上方条件][下方条件]`；箭头长度随标注内容自动伸长，标注颜色跟随图例颜色设置。
+- 标注内容支持混排排版，输出始终为 SVG 矢量：
+  - 化学式：`H2SO4` 自动渲染下标，`SO4^2-` 中 `^` 后内容渲染为上标（电荷）；
+  - Markdown 轻量语法：`**粗体**`、`*斜体*`、`` `代码` ``；
+  - LaTeX：整段用 `$...$` 包裹（如 `->[$\Delta$][$80^\circ\mathrm{C}$]`）。环境中有可用 MathJax 时用 tex2svg 矢量输出；否则由内置 mini-TeX 子集渲染（希腊字母 `\Delta`→Δ、`\mathrm{}`/`\text{}` 分组、`^`/`_` 上下标、`\circ`→°、`\,` 间距、`\times`/`\to` 等常用符号），不再退化为源码文本；
+  - 结构式：`mol:SMILES`（如 `->[mol:CCO][mol:O]`），在箭头上方/下方直接画出试剂/催化剂的结构式（chemfig 风格）。
+- 同一反应式内所有分子用 `fixedBondLength` 统一键长绘制，分子垂直居中；mergeSequence 内部按 S=1.6 全局放大（分子、间距、字号同步，比例不变）；反应式 SVG 按放大后的自然宽度显示，卡片过窄时横向滚动而不是压缩到看不清。
 
 ### 配置关键词
 
