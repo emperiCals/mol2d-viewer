@@ -1,5 +1,6 @@
 import { MarkdownRenderChild, MarkdownRenderer } from "obsidian";
 import RDKitPlugin from "./main";
+import { t, type TranslationKey } from "./i18n";
 
 declare global {
     interface Window {
@@ -902,7 +903,7 @@ export class RDKitRenderChild extends MarkdownRenderChild {
     // 核心渲染流：反应式序列
     async renderReactionSequence(wrapper: HTMLElement, sequence: any[], globalOpts: any) {
         if (!window.RDKit) {
-            wrapper.createEl("div", { text: "Loading RDKit...", cls: "rdkit-loading" });
+            wrapper.createEl("div", { text: t("render.loading"), cls: "rdkit-loading" });
             return;
         }
 
@@ -1087,7 +1088,7 @@ export class RDKitRenderChild extends MarkdownRenderChild {
                         const detailsWrapper = wrapper.createDiv({ cls: "rdkit-details-wrapper" });
                         detailsWrapper.classList.toggle("details-side", sideFits);
                         if (sideFits) detailsWrapper.style.maxHeight = this.plugin.settings.imageHeight === "auto" ? "300px" : this.plugin.settings.imageHeight;
-                        this.renderDescriptorsFromObj(detailsWrapper, desc, "Molecule Properties");
+                        this.renderDescriptorsFromObj(detailsWrapper, desc, t("render.moleculeProperties"));
                     }
                 }
                 // ---------------------------
@@ -1095,19 +1096,19 @@ export class RDKitRenderChild extends MarkdownRenderChild {
                 mol.delete();
             }
         } else {
-            wrapper.createEl("div", { text: `Invalid SMILES: ${smilesStr}`, cls: "rdkit-error" });
+            wrapper.createEl("div", { text: t("render.invalidSmiles", { smiles: smilesStr }), cls: "rdkit-error" });
         }
     }
 
     createDetailsPanel(wrapper: HTMLElement, customText: string, rData: any[], pData: any[]) {
-        const btn = wrapper.createEl("button", { text: "Show Reaction Details", cls: "rdkit-details-btn" });
+        const btn = wrapper.createEl("button", { text: t("render.showDetails"), cls: "rdkit-details-btn" });
         // 确保默认是 display:none
         const detailsDiv = wrapper.createDiv({ cls: "rdkit-reaction-details", style: "display:none;" });
         
         btn.onclick = () => {
             const isHidden = detailsDiv.style.display === "none";
             detailsDiv.style.display = isHidden ? "block" : "none";
-            btn.innerText = isHidden ? "Hide Reaction Details" : "Show Reaction Details";
+            btn.innerText = isHidden ? t("render.hideDetails") : t("render.showDetails");
             // 移除了缩放逻辑: wrapper.classList.add("rdkit-is-expanded");
         };
 
@@ -1120,53 +1121,54 @@ export class RDKitRenderChild extends MarkdownRenderChild {
         
         if (rData.length > 0) {
             const rCol = colsContainer.createDiv({ cls: "rdkit-reaction-col" });
-            rCol.createEl("h4", { text: "Reactants / Start (起始)", style: "margin: 0 0 10px 0;" });
+            rCol.createEl("h4", { text: t("render.reactants"), style: "margin: 0 0 10px 0;" });
             rData.forEach((d, i) => {
-                this.renderDescriptorsFromObj(rCol, d.desc, d.label || `Molecule ${i+1}`);
+                this.renderDescriptorsFromObj(rCol, d.desc, d.label || t("render.moleculeN", { index: i + 1 }));
             });
         }
         
         if (pData.length > 0) {
             const pCol = colsContainer.createDiv({ cls: "rdkit-reaction-col" });
-            pCol.createEl("h4", { text: "Products / End (产物)", style: "margin: 0 0 10px 0;" });
+            pCol.createEl("h4", { text: t("render.products"), style: "margin: 0 0 10px 0;" });
             pData.forEach((d, i) => {
-                this.renderDescriptorsFromObj(pCol, d.desc, d.label || `Molecule ${i+1}`);
+                this.renderDescriptorsFromObj(pCol, d.desc, d.label || t("render.moleculeN", { index: i + 1 }));
             });
         }
     }
 
     renderDescriptorsFromObj(container: HTMLElement, descriptors: any, title: string) {
         // ... (保持原有的属性渲染逻辑不变)
-        const keyMap: Record<string, string> = {
-            "amw": "平均分子量 (amw)", "exactmw": "精确分子量 (exactmw)", "formula": "分子式 (formula)",
-            "tpsa": "拓扑极性表面积 (tpsa)", "mollogp": "脂水分配系数 (mollogp)", "molmr": "摩尔折射率 (molmr)",
-            "labuteasa": "Labute 近似表面积 (labuteASA)", "crippenclogp": "Crippen ClogP (CrippenClogP)",
-            "crippenmr": "Crippen 摩尔折射 (CrippenMR)", "numrotatablebonds": "可旋转键数 (NumRotatableBonds)",
-            "numhbd": "氢键供体数 (NumHBD)", "numhba": "氢键受体数 (NumHBA)", "lipinskihba": "Lipinski 氢键受体 (lipinskiHBA)",
-            "lipinskihbd": "Lipinski 氢键供体 (lipinskiHBD)", "numheavyatoms": "重原子数 (NumHeavyAtoms)",
-            "numatoms": "总原子数 (NumAtoms)", "numheteroatoms": "杂原子数 (NumHeteroatoms)",
-            "numamidebonds": "酰胺键数 (NumAmideBonds)", "fractioncsp3": "Csp3 分数 (FractionCSP3)",
-            "numrings": "环数 (NumRings)", "numaromaticrings": "芳香环数 (NumAromaticRings)",
-            "numaliphaticrings": "脂肪环数 (NumAliphaticRings)", "numsaturatedrings": "饱和环数 (NumSaturatedRings)",
-            "numheterocycles": "杂环数 (NumHeterocycles)", "numaromaticheterocycles": "芳香杂环数 (NumAromaticHeterocycles)",
-            "numsaturatedheterocycles": "饱和杂环数 (NumSaturatedHeterocycles)", "numaliphaticheterocycles": "脂肪杂环数 (NumAliphaticHeterocycles)",
-            "numspiroatoms": "螺原子数 (NumSpiroAtoms)", "numbridgeheadatoms": "桥头原子数 (NumBridgeheadAtoms)",
-            "numatomstereocenters": "原子立体中心数 (NumAtomStereoCenters)", "numunspecifiedatomstereocenters": "未指定立体中心数 (NumUnspecifiedAtomStereoCenters)",
-            "chi0v": "原子价连接性指数 (chi0v)", "chi1v": "一阶价连接性指数 (chi1v)", "chi2v": "二阶价连接性指数 (chi2v)",
-            "chi3v": "三阶价连接性指数 (chi3v)", "chi4v": "四阶价连接性指数 (chi4v)", "chi0n": "零阶连接性指数 (chi0n)",
-            "chi1n": "一阶连接性指数 (chi1n)", "chi2n": "二阶连接性指数 (chi2n)", "chi3n": "三阶连接性指数 (chi3n)",
-            "chi4n": "四阶连接性指数 (chi4n)", "hallkieralpha": "Hall-Kier Alpha 指数 (hallKierAlpha)",
-            "kappa1": "Kappa1 指数 (kappa1)", "kappa2": "Kappa2 指数 (kappa2)", "kappa3": "Kappa3 指数 (kappa3)", "phi": "柔性指数 (Phi)"
+        // 属性名与分类名走 i18n（值随界面语言切换）
+        const keyMap: Record<string, TranslationKey> = {
+            "amw": "descriptors.amw", "exactmw": "descriptors.exactmw", "formula": "descriptors.formula",
+            "tpsa": "descriptors.tpsa", "mollogp": "descriptors.mollogp", "molmr": "descriptors.molmr",
+            "labuteasa": "descriptors.labuteasa", "crippenclogp": "descriptors.crippenclogp",
+            "crippenmr": "descriptors.crippenmr", "numrotatablebonds": "descriptors.numrotatablebonds",
+            "numhbd": "descriptors.numhbd", "numhba": "descriptors.numhba", "lipinskihba": "descriptors.lipinskihba",
+            "lipinskihbd": "descriptors.lipinskihbd", "numheavyatoms": "descriptors.numheavyatoms",
+            "numatoms": "descriptors.numatoms", "numheteroatoms": "descriptors.numheteroatoms",
+            "numamidebonds": "descriptors.numamidebonds", "fractioncsp3": "descriptors.fractioncsp3",
+            "numrings": "descriptors.numrings", "numaromaticrings": "descriptors.numaromaticrings",
+            "numaliphaticrings": "descriptors.numaliphaticrings", "numsaturatedrings": "descriptors.numsaturatedrings",
+            "numheterocycles": "descriptors.numheterocycles", "numaromaticheterocycles": "descriptors.numaromaticheterocycles",
+            "numsaturatedheterocycles": "descriptors.numsaturatedheterocycles", "numaliphaticheterocycles": "descriptors.numaliphaticheterocycles",
+            "numspiroatoms": "descriptors.numspiroatoms", "numbridgeheadatoms": "descriptors.numbridgeheadatoms",
+            "numatomstereocenters": "descriptors.numatomstereocenters", "numunspecifiedatomstereocenters": "descriptors.numunspecifiedatomstereocenters",
+            "chi0v": "descriptors.chi0v", "chi1v": "descriptors.chi1v", "chi2v": "descriptors.chi2v",
+            "chi3v": "descriptors.chi3v", "chi4v": "descriptors.chi4v", "chi0n": "descriptors.chi0n",
+            "chi1n": "descriptors.chi1n", "chi2n": "descriptors.chi2n", "chi3n": "descriptors.chi3n",
+            "chi4n": "descriptors.chi4n", "hallkieralpha": "descriptors.hallkieralpha",
+            "kappa1": "descriptors.kappa1", "kappa2": "descriptors.kappa2", "kappa3": "descriptors.kappa3", "phi": "descriptors.phi"
         };
 
-        const categories: Record<string, string[]> = {
-            "基础属性 (Basic)": ["amw", "exactmw", "formula", "tpsa", "labuteasa"],
-            "药效/亲脂性 (Drug-like)": ["mollogp", "molmr", "crippenclogp", "crippenmr", "fractioncsp3"],
-            "氢键与酰胺键 (H-Bonds and Amide Bonds)": ["numhbd", "numhba", "lipinskihba", "lipinskihbd", "numamidebonds"],
-            "计数属性 (Counts)": ["numatoms", "numheavyatoms", "numheteroatoms", "numspiroatoms", "numbridgeheadatoms"],
-            "环系统 (Rings)": ["numrings", "numaromaticrings", "numaliphaticrings", "numsaturatedrings", "numheterocycles", "numaromaticheterocycles"],
-            "立体与拓扑 (Topo/Stereo)": ["numatomstereocenters", "numunspecifiedatomstereocenters", "numrotatablebonds", "chi0v", "chi1v", "chi2v", "chi3v", "chi4v", "phi", "hallkieralpha", "kappa1", "kappa2", "kappa3"]
-        };
+        const categories: Array<{ nameKey: TranslationKey; open?: boolean; keys: string[] }> = [
+            { nameKey: "categories.basic", open: true, keys: ["amw", "exactmw", "formula", "tpsa", "labuteasa"] },
+            { nameKey: "categories.drugLike", keys: ["mollogp", "molmr", "crippenclogp", "crippenmr", "fractioncsp3"] },
+            { nameKey: "categories.hBonds", keys: ["numhbd", "numhba", "lipinskihba", "lipinskihbd", "numamidebonds"] },
+            { nameKey: "categories.counts", keys: ["numatoms", "numheavyatoms", "numheteroatoms", "numspiroatoms", "numbridgeheadatoms"] },
+            { nameKey: "categories.rings", keys: ["numrings", "numaromaticrings", "numaliphaticrings", "numsaturatedrings", "numheterocycles", "numaromaticheterocycles"] },
+            { nameKey: "categories.topoStereo", keys: ["numatomstereocenters", "numunspecifiedatomstereocenters", "numrotatablebonds", "chi0v", "chi1v", "chi2v", "chi3v", "chi4v", "phi", "hallkieralpha", "kappa1", "kappa2", "kappa3"] }
+        ];
 
         if (title) {
             const h5 = container.createEl("h5", { text: title });
@@ -1175,20 +1177,21 @@ export class RDKitRenderChild extends MarkdownRenderChild {
             h5.style.borderBottom = "1px solid var(--background-modifier-border)";
         }
 
-        Object.keys(categories).forEach(catName => {
-            const keys = categories[catName];
+        categories.forEach(cat => {
+            const keys = cat.keys;
             let availableKeysInCat = keys.filter(k => descriptors.hasOwnProperty(Object.keys(descriptors).find(dk => dk.toLowerCase() === k.toLowerCase()) || ""));
             
             if (availableKeysInCat.length > 0) {
                 const detailsEl = container.createEl("details", { cls: "rdkit-details-cat" });
-                if (catName.includes("Basic")) detailsEl.setAttribute("open", "");
-                detailsEl.createEl("summary", { text: catName });
+                if (cat.open) detailsEl.setAttribute("open", "");
+                detailsEl.createEl("summary", { text: t(cat.nameKey) });
                 const listContainer = detailsEl.createDiv({ cls: "rdkit-prop-list" });
                 
                 availableKeysInCat.forEach(k => {
                     const realKey = Object.keys(descriptors).find(dk => dk.toLowerCase() === k.toLowerCase()) as string;
                     const val = descriptors[realKey];
-                    const displayName = keyMap[k.toLowerCase()] || realKey;
+                    const descKey = keyMap[k.toLowerCase()];
+                    const displayName = descKey ? t(descKey) : realKey;
                     const item = listContainer.createDiv({ cls: "rdkit-prop-item" });
                     item.createEl("strong", { text: displayName });
                     item.createEl("span", { text: (typeof val === 'number') ? val.toFixed(2) : String(val) });

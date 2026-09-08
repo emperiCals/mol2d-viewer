@@ -6,6 +6,7 @@ import {
 import { RDKitPluginSettings, DEFAULT_SETTINGS } from "./settings";
 import { RDKitSettingTab } from "./settingTab";
 import { RDKitRenderChild } from "./renderChild";
+import { initI18n } from "./i18n";
 
 declare global {
     interface Window {
@@ -18,6 +19,7 @@ export default class RDKitPlugin extends Plugin {
     settings: RDKitPluginSettings;
 
     async onload() {
+        await initI18n();
         await this.loadSettings();
         this.addSettingTab(new RDKitSettingTab(this.app, this));
         
